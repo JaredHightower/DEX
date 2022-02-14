@@ -28,7 +28,7 @@ contract Dex is Wallet {
         return orderBook[ticker][uint(side)];
     }
 
-    function createLimitOrder(Side side, bytes32 ticker, uint amount, uint price, uint filled) public {
+    function createLimitOrder(Side side, bytes32 ticker, uint amount, uint price) public {
         if(side == Side.BUY) {
             require(balances[msg.sender]["ETH"] >= amount.mul(price), 'inseffuient funds');
         } else if(side == Side.SELL) {
@@ -38,7 +38,7 @@ contract Dex is Wallet {
         Order[] storage orders = orderBook[ticker][uint(side)];
 
         orders.push(
-            Order(nextOrderId, msg.sender, side, ticker, amount, price, filled)
+            Order(nextOrderId, msg.sender, side, ticker, amount, price, 0)
         );
 
         // Bubble sort
@@ -84,18 +84,51 @@ contract Dex is Wallet {
         }
         Order[] storage orders = orderBook[ticker][orderBookSide];
 
-        uint totalFilled;
+
+        uint totalFilled = 0;
 
         for (uint256 i = 0; i < orders.length && totalFilled < amount; i++) {
-            // How much we can fill from order[i];
-            
-            // udate totalFilled;
+            uint leftToFill = amount.sub(totalFilled);
+            uint availableToFill = orders[i].amount.sub(orders[i].filled);
+            uint filled = 0;
+            if(availableToFill > leftToFill){
+                filled = leftToFill;
+            }
+            else{
+                filled = availableToFill;
+            }
 
-            // Execute the trade & shift balances between buyer/seller
-            // Verify that the buyer has enough eth to cover purchase;
+            totalFilled = totalFilled.add(filled);
+            orders[i].filled = orders[i].filled.add(filled);
+            uint cost = filled.mul(orders[i].price);
+
+            if(side == Side.BUY){
+                require(balances[msg.sender]["ETH"] >= cost, "Insuffient funds");
+
+                balances[msg.sender][ticker] = balances[msg.sender][ticker].add(filled);
+                balances[msg.sender]["ETH"] = balances[msg.sender]["ETH"].sub(cost);
+
+                balances[orders[i].trader][ticker] = balances[orders[i].trader][ticker].sub(filled);
+                balances[orders[i].trader]["ETH"] = balances[orders[i].trader]["ETH"].add(cost);
+            }
+            else if(side == Side.SELL){
+                //Msg.sender is the seller
+                balances[msg.sender][ticker] = balances[msg.sender][ticker].sub(filled);
+                balances[msg.sender]["ETH"] = balances[msg.sender]["ETH"].add(cost);
+
+                balances[orders[i].trader][ticker] = balances[orders[i].trader][ticker].add(filled);
+                balances[orders[i].trader]["ETH"] = balances[orders[i].trader]["ETH"].sub(cost);
+            }
+
         }
 
-        // Loop through the orderbook and remview 100% filled orders
+            while(orders.length > 0 && orders[0].filled == orders[0].amount) {
+                for (uint256 i = 0; i < orders.length - 1; i++) {
+                    orders[i] = orders[i + 1];
+                }
+                orders.pop();
+            }
+
     }
 
 
